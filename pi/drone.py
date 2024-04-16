@@ -38,7 +38,7 @@ with requests.Session() as session:
 @app.route('/', methods=['POST'])
 def main():
     coords = request.json
-    # Get current longitude and latitude of the drone 
+    # Get current longitude and latitude of the drone
     #===================================================================
     current_longitude = 0
     current_latitude = 0

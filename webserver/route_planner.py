@@ -1,6 +1,6 @@
 from cmath import pi
 from flask import Flask, request, render_template, jsonify
-from flask.globals import current_app 
+from flask.globals import current_app
 from geopy.geocoders import Nominatim
 from flask_cors import CORS
 import redis
@@ -48,7 +48,7 @@ def route_planner():
         # if no drone is availble:
         message = 'No available drone, try later'
         # else:
-            # 2. Get the IP of available drone, 
+            # 2. Get the IP of available drone,
         DRONE_URL = 'http://' + DRONE_IP+':5000'
             # 3. Send coords to the URL of available drone
         message = 'Got address and sent request to the drone'

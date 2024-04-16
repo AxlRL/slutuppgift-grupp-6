@@ -14,7 +14,7 @@ def getMovement(src, dst):
 def moveDrone(src, d_long, d_la):
     x, y = src
     x = x + d_long
-    y = y + d_la        
+    y = y + d_la
     return (x, y)
 
 def send_location(SERVER_URL, id, drone_coords, status):
@@ -29,7 +29,7 @@ def send_location(SERVER_URL, id, drone_coords, status):
 def distance(_fr, _to):
     _dist = ((_to[0] - _fr[0])**2 + (_to[1] - _fr[1])**2)*10**6
     return _dist
-        
+
 def run(id, current_coords, from_coords, to_coords, SERVER_URL):
     drone_coords = current_coords
 
@@ -44,12 +44,12 @@ def run(id, current_coords, from_coords, to_coords, SERVER_URL):
     while distance(drone_coords, to_coords) > 0.0002:
         drone_coords = moveDrone(drone_coords, d_long, d_la)
         send_location(SERVER_URL, id=id, drone_coords=drone_coords, status='busy')
-    
+
     # Stop and update status to database
     send_location(SERVER_URL, id=id, drone_coords=drone_coords, status='idle')
-    
+
     return drone_coords[0], drone_coords[1]
-   
+
 if __name__ == "__main__":
     # Fill in the IP address of server, in order to location of the drone to the SERVER
     #===================================================================
