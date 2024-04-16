@@ -23,7 +23,9 @@ current_latitude = 0
 drone_info = {'id': myID,
                 'longitude': current_longitude,
                 'latitude': current_latitude,
-                'status': 'idle'
+                'status': 'idle',
+                'corpID': None,
+                'ETA': None
             }
 
 # Fill in the IP address of server, and send the initial location of the drone to the SERVER
