@@ -8,14 +8,22 @@ import redis
 import pickle
 import json
 
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+cred = credentials.Certificate('admin/static/cred.json')
+
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
 app = Flask(__name__)
 CORS(app)
 app.secret_key = 'dljsaklqk24e21cjn!Ew@@dsa5'
 
-# change this so that you can connect to your redis server
-# ===============================================
-redis_server = redis.Redis("REDIS_SERVER", decode_responses=True, charset="unicode_escape")
-# ===============================================
+# # change this so that you can connect to your redis server
+# # ===============================================
+# redis_server = redis.Redis("REDIS_SERVER", decode_responses=True, charset="unicode_escape")
+# # ===============================================
 
 # Translate OSM coordinate (longitude, latitude) to SVG coordinates (x,y).
 # Input coords_osm is a tuple (longitude, latitude).
@@ -43,7 +51,7 @@ def map():
 @app.route('/get_drones', methods=['GET'])
 def get_drones():
     #=============================================================================================================================================
-    # Get the information of all the drones from redis server and update the dictionary `drone_dict' to create the response 
+    # Get the information of all the drones from redis server and update the dictionary `drone_dict' to create the response
     # drone_dict should have the following format:
     # e.g if there are two drones in the system with IDs: DRONE1 and DRONE2
     # drone_dict = {'DRONE_1':{'longitude': drone1_logitude_svg, 'latitude': drone1_logitude_svg, 'status': drone1_status},

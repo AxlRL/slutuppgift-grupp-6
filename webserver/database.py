@@ -3,14 +3,22 @@ from flask_cors import CORS
 import redis
 import json
 
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+cred = credentials.Certificate('admin/static/cred.json')
+
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
 
 app = Flask(__name__)
 CORS(app)
 
-# change this to connect to your redis server
-# ===============================================
-redis_server = redis.Redis("REDIS_SERVER", decode_responses=True, charset="unicode_escape")
-# ===============================================
+# # change this to connect to your redis server
+# # ===============================================
+# redis_server = redis.Redis("REDIS_SERVER", decode_responses=True, charset="unicode_escape")
+# # ===============================================
 
 @app.route('/drone', methods=['POST'])
 def drone():
