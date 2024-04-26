@@ -2,19 +2,22 @@ import argparse
 import math
 import json
 import socketio
+import time
 
 current_coords = None
 
 sio = socketio.Client()
 
-@sio.event
+@sio.on('message')
 def on_message(message):
+    time.sleep(1)
     global current_coords
 
     message = json.loads(message)
+    print("Received message: " + str(message))
 
     if message['type'] == 'order':
-        fly_to_order(message['order'])
+        fly_to_order(message)
 
 def fly_to_order(order):
     fly_to_coords(order['from'])
@@ -25,18 +28,18 @@ def fly_to_order(order):
 
     wait_for_confirmation()
 
-    sio.send({
-        'type': 'order_completed',
-        'order_id': order['id']
-    })
+    print("Arrived at:" + str(current_coords))
+    sio.emit("order_completed", "Order completed, at " + str(current_coords))
 
 def fly_to_coords(coords):
     global current_coords
+    coords = (float(coords[0]), float(coords[1]))
+    speed = 0.0001
 
     while distance(current_coords, coords) > 0.0002:
-        d_lon, d_lat = current_coords[0] - coords[0], current_coords[1] - coords[1]
+        d_lat, d_lon = (coords[0] - current_coords[0], coords[1] - current_coords[1])
 
-        current_coords = (current_coords[0] + d_lon, current_coords[1] + d_lat)
+        current_coords = (current_coords[0] + d_lat*speed, current_coords[1] + d_lon*speed)
 
         send_location()
 
@@ -44,16 +47,16 @@ def wait_for_confirmation():
     pass
 
 def distance(pos_a, pos_b):
-    return math.sqrt((pos_a[0] - pos_b[0])**2 + (pos_a[1] - pos_b[1])**2)
+    dist = math.sqrt((pos_a[0] - pos_b[0])**2 + (pos_a[1] - pos_b[1])**2)
+    print(dist)
+    return dist
 
 def send_location():
     global sio, current_coords
 
-    sio.send({
-        'type': 'location',
-        'id': drone_id,
-        'coords': current_coords
-    })
+    jsonCoords = json.dumps({"Lon": current_coords[0], "Lat": current_coords[1]})
+
+    sio.emit("location", jsonCoords)
 
 if __name__ == "__main__":
     ## Parse Arguments
@@ -69,3 +72,4 @@ if __name__ == "__main__":
     ## Connect To Command Server
     sio.connect("http://localhost:8080")
     sio.wait()
+

@@ -4,6 +4,8 @@ from firebase_admin import credentials, firestore
 from flask import Flask, request
 from flask_cors import CORS
 from flask_socketio import SocketIO
+import json
+import time
 
 cred = credentials.Certificate('static/cred.json')
 
@@ -18,8 +20,24 @@ drones = set()
 
 @socketio.on('connect')
 def connection():
-  print("Server received connection from" + request.sid)
+  print("Server received connection from " + request.sid)
   drones.add(request.sid)
+  order = {
+    "type": "order",
+    "status": "pending",
+    "from": "55.720094, 13.167589",
+    "to": "55.698236, 13.207758"
+  }
+  order = json.dumps(order)
+  socketio.send(order, to=request.sid)
+
+@socketio.on("order_completed")
+def order_completed(message):
+  print("received message: " + str(message))
+
+@socketio.on('location')
+def drone_update_location(message):
+  print("received message: " + str(message))
 
 @app.route("/place-order", methods=["POST"])
 def place_order_endpoint():
