@@ -16,28 +16,85 @@ app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
 
-drones = set()
+drones_sid_id = {}
+drones_id_sid = {}
 
+# Drone Connect
 @socketio.on('connect')
 def connection():
-  print("Server received connection from " + request.sid)
-  drones.add(request.sid)
-  order = {
-    "type": "order",
-    "status": "pending",
-    "from": "55.720094, 13.167589",
-    "to": "55.698236, 13.207758"
-  }
-  order = json.dumps(order)
-  socketio.send(order, to=request.sid)
+  print("Connected", request.sid)
 
-@socketio.on("order_completed")
-def order_completed(message):
-  print("received message: " + str(message))
+# Drone Connection Handshake
+@socketio.on("hello")
+def drone_hello(data):
+  print("Drone hello", data, request.sid)
 
-@socketio.on('location')
-def drone_update_location(message):
-  print("received message: " + str(message))
+  drones_id_sid[data["drone_id"]] = request.sid
+  drones_sid_id[request.sid] = data["drone_id"]
+
+  db.collection("drones").document(data["drone_id"]).update({
+    "status": "online",
+  })
+
+# Drone Disconnect
+@socketio.on('disconnect')
+def disconnection():
+  global drones_sid_id, drones_id_sid
+  print("Disconnected", request.sid)
+
+  drone_id = drones_sid_id[request.sid]
+  db.collection("drones").document(drone_id).update({
+    "status": "offline",
+  })
+
+  del drones_sid_id[request.sid]
+  del drones_id_sid[drone_id]
+
+# Drone Location Update
+@socketio.on("drone_location")
+def drone_update_location(data):
+  print("Drone location", data)
+
+  db.collection("drones").document(data["drone_id"]).update({
+    "latitude": data["current_coords"][0],
+    "longitude": data["current_coords"][1],
+  })
+
+# Drone Arrived At Destination
+@socketio.on("arrived")
+def drone_arrived(data):
+  print("Drone arrived", data)
+
+  drone = db.collection("drones").document(data["drone_id"])
+  drone.update({
+    "status": "idle",
+    "flying_to": None,
+  })
+
+@app.route("/drones/<drone_id>/fly-to", methods=["POST"])
+def fly_to_endpoint(drone_id):
+  global socketio, drones_id_sid
+  body = request.get_json()
+
+  print("Fly to", drone_id, body)
+
+  drone = db.collection("drones").document(drone_id)
+  drone.update({
+    "status": "flying",
+    "flying_to": body["to"],
+  })
+
+  drone_sid = drones_id_sid[drone_id]
+
+  socketio.emit("fly_to_coordinates", body["to"], to=drone_sid)
+
+  return "OK"
+
+@app.route("/drones", methods=["GET"])
+def get_drones_endpoint():
+  global drones_id_sid
+
+  return json.dumps(drones_id_sid)
 
 @app.route("/place-order", methods=["POST"])
 def place_order_endpoint():
