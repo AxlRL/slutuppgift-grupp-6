@@ -3,81 +3,96 @@ import math
 import socketio
 import asyncio
 
-drone_id = None
-current_coords = None
-target_coords = None
+CONTROL_SERVER_URL = 'http://localhost:8080'
+MOVEMENT_SPEED = 0.0001
 
-sio = socketio.AsyncClient()
+class HandshakeFailedError(Exception):
+    pass
 
-@sio.on("fly_to_coordinates")
-async def fly_to_coordinates(to_coords):
-    global target_coords
-    target_coords = to_coords
+class Drone:
+  def __init__(self, drone_id, current_lat=55.7076368, current_lon=13.1880542):
+    self.drone_id = drone_id
+    self.current_coords = (current_lat, current_lon)
+    self.target_coords = None
+    self.sio = socketio.AsyncClient()
+    self.setup_socket_events()
 
-async def run_continuous_task():
-    while True:
-        await fly_to_coords()
-        await asyncio.sleep(1)
+  async def connect_to_server(self):
+    await self.sio.connect(CONTROL_SERVER_URL)
+    print('Connected to server')
+    await self.handshake()
+    await self.send_location()
 
-async def main():
-    global drone_id, current_coords
+  async def handshake(self):
+    print('Handshaking...')
+    response = await self.sio.call('drone_handshake', {'drone_id': self.drone_id})
 
-    ## Parse Arguments
-    parser = argparse.ArgumentParser(description="Drone Control System")
-    parser.add_argument("--id", help='Drone ID', type=str, required=True)
-    parser.add_argument("--current_lat", help='Current Drone Latitude', type=float, default=55.7076368)
-    parser.add_argument("--current_lon", help='Current Drone Longitude', type=float, default=13.1880542)
-    args = parser.parse_args()
+    if not response['success']:
+        print('Handshake failed')
+        await self.sio.disconnect()
+        raise HandshakeFailedError()
+    print('Handshake successful')
 
-    drone_id = args.id
-    current_coords = (args.current_lat, args.current_lon)
+  def setup_socket_events(self):
+    @self.sio.on('set_target')
+    async def set_target(to_coords):
+        print('Received target:', to_coords)
+        self.target_coords = to_coords.get('coords')
 
-    ## Connect To Command Server
-    await sio.connect("http://localhost:8080")
+  async def send_location(self):
+    await self.sio.emit('drone_location', {'drone_id': self.drone_id, 'current_coords': self.current_coords})
 
-    await send_location()
-    await run_continuous_task()
+  async def send_arrived(self):
+    await self.sio.emit('arrived', {'drone_id': self.drone_id})
 
-async def fly_to_coords():
-    global current_coords, target_coords
-
-    if target_coords is None:
+  async def fly_to_coords(self):
+    if self.target_coords is None:
         return
 
-    await send_location()
+    await self.send_location()
 
-    target_lat, target_lon = target_coords
+    target_lat, target_lon = self.target_coords
+    current_lat, current_lon = self.current_coords
 
-    current_lat, current_lon = current_coords
+    # Calculate direction vector
+    delta_lat = target_lat - current_lat
+    delta_lon = target_lon - current_lon
+    distance = math.sqrt(delta_lat ** 2 + delta_lon ** 2)
 
-    print("Flying to", target_coords, "from", current_coords)
+    # Ensure movement at constant speed
+    if distance > MOVEMENT_SPEED:
+        scale = MOVEMENT_SPEED / distance
+        delta_lat *= scale
+        delta_lon *= scale
 
-    current_coords = (
-        current_lat + (target_lat - current_lat) * 0.1,
-        current_lon + (target_lon - current_lon) * 0.1,
-    )
+    # Update current coordinates
+    self.current_coords = (current_lat + delta_lat, current_lon + delta_lon)
 
-    distance = math.sqrt((target_lon - current_lon) ** 2 + (target_lat - current_lat) ** 2)
+    # Check if arrived
+    if distance < MOVEMENT_SPEED:
+      self.current_coords = self.target_coords
+      self.target_coords = None
+      print('Arrived at', self.current_coords)
+      await self.send_arrived()
 
-    if distance < 0.0001:
-        current_coords = target_coords
-        await send_arrived()
+  async def run_continuous_flight_task(self):
+    while True:
+      await self.fly_to_coords()
+      await asyncio.sleep(0.1)
 
-@sio.on("connect")
-async def send_hello():
-    global sio, drone_id
+async def main():
+  parser = argparse.ArgumentParser(description='Drone Instance')
+  parser.add_argument('--id', help='Drone ID', type=str, required=True)
+  parser.add_argument('--current_lat', help='Current Drone Latitude', type=float, default=55.7076368)
+  parser.add_argument('--current_lon', help='Current Drone Longitude', type=float, default=13.1880542)
+  args = parser.parse_args()
 
-    await sio.emit("hello", { "drone_id": drone_id })
+  drone = Drone(args.id, args.current_lat, args.current_lon)
+  await drone.connect_to_server()
+  await drone.run_continuous_flight_task()
 
-async def send_location():
-    global sio, drone_id, current_coords
-
-    await sio.emit("drone_location", { "drone_id": drone_id, "current_coords": current_coords })
-
-async def send_arrived():
-    global sio, drone_id
-
-    await sio.emit("arrived", { "drone_id": drone_id })
-
-if __name__ == "__main__":
+if __name__ == '__main__':
+  try:
     asyncio.run(main())
+  except HandshakeFailedError:
+    print('Handshake failed. Exiting...')

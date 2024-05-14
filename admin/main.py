@@ -1,140 +1,155 @@
+from flask import Flask, request
+from flask_socketio import SocketIO, emit
+import asyncio
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-from flask import Flask, request
-from flask_cors import CORS
-from flask_socketio import SocketIO
-import json
-import time
+# Initialize Flask and SocketIO
+app = Flask(__name__)
+sio = SocketIO(app)
 
-cred = credentials.Certificate('static/cred.json')
-
+# Initialize Firebase
+cred = credentials.Certificate('static/sa_credentials.json')  # Replace with your Firebase credentials file
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-app = Flask(__name__)
-CORS(app)
-socketio = SocketIO(app)
+# Global dictionaries to store drone and delivery information
+connected_drones = {}
+delivery_requests = {}
+drone_sid_id = {}
 
-drones_sid_id = {}
-drones_id_sid = {}
+# Firestore collection names
+DRONES_COLLECTION = 'drones'
+DELIVERIES_COLLECTION = 'deliveries'
 
-# Drone Connect
-@socketio.on('connect')
-def connection():
-  print("Connected", request.sid)
+@sio.event
+def connect():
+    print('Client connected')
 
-# Drone Connection Handshake
-@socketio.on("hello")
-def drone_hello(data):
-  print("Drone hello", data, request.sid)
+@sio.event
+def disconnect():
+    print('Client disconnected')
 
-  drones_id_sid[data["drone_id"]] = request.sid
-  drones_sid_id[request.sid] = data["drone_id"]
+    drone_id = drone_sid_id.get(request.sid)
+    if drone_id:
+        drone_ref = connected_drones[drone_id]['ref']
+        drone_ref.update({'status': 'offline'})
+        del connected_drones[drone_id]
+        del drone_sid_id[request.sid]
+        print(f"Drone {drone_id} disconnected")
 
-  db.collection("drones").document(data["drone_id"]).update({
-    "status": "online",
-  })
 
-# Drone Disconnect
-@socketio.on('disconnect')
-def disconnection():
-  global drones_sid_id, drones_id_sid
-  print("Disconnected", request.sid)
+@sio.on('drone_handshake')
+def handle_handshake(data):
+  print('Handling handshake')
+  drone_id = data.get('drone_id')
+  if drone_id:
+      drone_ref = db.collection(DRONES_COLLECTION).document(drone_id)
 
-  drone_id = drones_sid_id[request.sid]
-  db.collection("drones").document(drone_id).update({
-    "status": "offline",
-  })
+      if not drone_ref.get().exists:
+          print(f"Drone {drone_id} not found in database.")
+          return {'success': False}
 
-  del drones_sid_id[request.sid]
-  del drones_id_sid[drone_id]
+      drone_ref.update({
+          'status': 'idle',
+          'latitude': None,
+          'longitude': None,
+      })
 
-# Drone Location Update
-@socketio.on("drone_location")
-def drone_update_location(data):
-  print("Drone location", data)
+      connected_drones[drone_id] = {'target': None, 'ref': drone_ref, 'sid': request.sid, 'delivery': None}
+      drone_sid_id[request.sid] = drone_id
+      return {'success': True, 'drone_id': drone_id}
+  else:
+      return {'success': False}
 
-  db.collection("drones").document(data["drone_id"]).update({
-    "latitude": data["current_coords"][0],
-    "longitude": data["current_coords"][1],
-  })
+@sio.on('drone_location')
+def handle_drone_location(data):
+    drone_id = data.get('drone_id')
+    current_coords = data.get('current_coords')
+    if drone_id:
+        if drone_id in connected_drones:
+            connected_drones[drone_id]['ref'].update({
+              'latitude': current_coords[0],
+              'longitude': current_coords[1]
+            })
+            print(f"Drone {drone_id} location updated in Firestore: {current_coords}")
+        else:
+            print(f"Unknown drone: {drone_id}")
 
-# Drone Arrived At Destination
-@socketio.on("arrived")
-def drone_arrived(data):
-  print("Drone arrived", data)
+@sio.on("arrived")
+def handle_arrived(data):
+    drone_id = data.get('drone_id')
+    if not drone_id:
+        return
 
-  drone = db.collection("drones").document(data["drone_id"])
-  drone.update({
-    "status": "idle",
-    "flying_to": None,
-  })
+    if not drone_id in connected_drones:
+        print(f"Unknown drone: {drone_id}")
+        return
 
-@app.route("/drones/<drone_id>/fly-to", methods=["POST"])
-def fly_to_endpoint(drone_id):
-  global socketio, drones_id_sid
-  body = request.get_json()
+    drone_data = connected_drones[drone_id]
+    delivery_id = drone_data['delivery']
 
-  print("Fly to", drone_id, body)
+    if not delivery_id:
+        print(f"Drone {drone_id} arrived at unknown location")
+        return
 
-  drone = db.collection("drones").document(drone_id)
-  drone.update({
-    "status": "flying",
-    "flying_to": body["to"],
-  })
+    delivery_ref = delivery_requests[delivery_id]['ref']
+    delivery_status = delivery_ref.get().to_dict()['status']
 
-  drone_sid = drones_id_sid[drone_id]
+    if delivery_status == 'flight_to_pickup':
+        delivery_ref.update({'status': 'flight_to_dropoff'})
+        print(f"Drone {drone_id} arrived at pickup location for delivery {delivery_id}")
+        dropoff_coords = delivery_ref.get().to_dict()['dropoff_coords']
+        sio.emit('set_target', {'coords': dropoff_coords}, room=drone_data['sid'])
+    elif delivery_status == 'flight_to_dropoff':
+        delivery_ref.update({'status': 'completed'})
+        drone_data['ref'].update({'status': 'idle', 'delivery_id': None})
+        drone_data['delivery'] = None
+        print(f"Drone {drone_id} arrived at dropoff location for delivery {delivery_id}")
+        assign_deliveries()
+    else:
+        print(f"Drone {drone_id} arrived at unknown location for delivery {delivery_id}")
 
-  socketio.emit("fly_to_coordinates", body["to"], to=drone_sid)
+@app.route('/request_delivery', methods=['POST'])
+def request_delivery():
+    data = request.get_json()
+    pickup_coords = data.get('pickup_coords')
+    dropoff_coords = data.get('dropoff_coords')
 
-  return "OK"
+    if pickup_coords and dropoff_coords:
+        _,delivery_ref = db.collection(DELIVERIES_COLLECTION).add({
+            'pickup_coords': pickup_coords,
+            'dropoff_coords': dropoff_coords,
+            'status': 'pending'
+        })
+        # Add delivery request to local dictionary
+        delivery_requests[delivery_ref.id] = {'ref': delivery_ref}
+        print(f"New delivery request added: {delivery_ref.id}")
 
-@app.route("/drones", methods=["GET"])
-def get_drones_endpoint():
-  global drones_id_sid
+        # Attempt to assign the delivery to an available drone
+        assign_deliveries()
 
-  return json.dumps(drones_id_sid)
+        return f"Delivery request submitted with ID: {delivery_ref.id}", 200
+    else:
+        return "Invalid delivery request data", 400
 
-@app.route("/place-order", methods=["POST"])
-def place_order_endpoint():
-  body = request.get_json()
 
-  order = {
-    "status": "pending",
-    "from": body["from"],
-    "to": body["to"],
-  }
+def assign_deliveries():
+    for delivery_id, delivery_data in delivery_requests.items():
+        if delivery_data['ref'].get().to_dict()['status'] == 'pending':
+            for drone_id, drone_data in connected_drones.items():
+                if drone_data['ref'].get().to_dict()['status'] == 'idle':
+                    # Assign delivery to drone in Firestore
+                    delivery_data['ref'].update({'drone_id': drone_id, 'status': 'flight_to_pickup'})
+                    # Update drone availability in Firestore
+                    drone_data['ref'].update({'status': 'busy', 'delivery_id': delivery_id})
+                    drone_data['delivery'] = delivery_id
+                    # Send target coordinates to drone
+                    pickup_coords = delivery_data['ref'].get().to_dict()['pickup_coords']
+                    print(f"Assigning delivery {delivery_id} to drone {drone_id}")
+                    sio.emit('set_target', {'coords': pickup_coords}, room=drone_data['sid'])
+                    print(f"Delivery {delivery_id} assigned to drone {drone_id}")
+                    return
 
-  db.collection("orders").add(order)
-
-  return "Order placed"
-
-@app.route("/update-location", methods=["PUT"])
-def update_location_endpoint():
-  body = request.get_json()
-
-  drone = db.collection("drones").document(body["id"])
-  drone.update({
-    "longitude": body["longitude"],
-    "latitude": body["latitude"],
-  })
-
-  return "Location updated"
-
-@app.route("/get-next-order", methods=["POST"])
-def get_next_order_endpoint():
-  body = request.get_json()
-
-  order = db.collection("orders").where("status", "==", "pending").limit(1).get()
-
-  if len(order) == 0:
-    return "No orders available"
-
-  order = order[0]
-  order.reference.update({"status": "claimed"})
-
-  return order.to_dict()
-
-if __name__ == "__main__":
-  socketio.run(app, debug=True, host='0.0.0.0', port='8080')
+if __name__ == '__main__':
+    sio.run(app, host='0.0.0.0', port=8080)
