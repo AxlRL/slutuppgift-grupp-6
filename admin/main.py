@@ -72,7 +72,7 @@ def handle_drone_location(data):
               'latitude': current_coords[0],
               'longitude': current_coords[1]
             })
-            print(f"Drone {drone_id} location updated in Firestore: {current_coords}")
+            # print(f"Drone {drone_id} location updated in Firestore: {current_coords}")
         else:
             print(f"Unknown drone: {drone_id}")
 
@@ -120,7 +120,9 @@ def request_delivery():
         _,delivery_ref = db.collection(DELIVERIES_COLLECTION).add({
             'pickup_coords': pickup_coords,
             'dropoff_coords': dropoff_coords,
-            'status': 'pending'
+            'status': 'pending',
+            'company': data.get('company_name'),
+            'created_at': firestore.SERVER_TIMESTAMP,
         })
         # Add delivery request to local dictionary
         delivery_requests[delivery_ref.id] = {'ref': delivery_ref}
