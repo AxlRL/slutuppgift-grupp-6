@@ -33,7 +33,7 @@ def disconnect():
     drone_id = drone_sid_id.get(request.sid)
     if drone_id:
         drone_ref = connected_drones[drone_id]['ref']
-        drone_ref.update({'status': 'offline'})
+        drone_ref.update({'status': 'offline', 'latitude': None, 'longitude': None})
         del connected_drones[drone_id]
         del drone_sid_id[request.sid]
         print(f"Drone {drone_id} disconnected")

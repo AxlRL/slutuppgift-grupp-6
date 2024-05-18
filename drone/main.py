@@ -10,7 +10,7 @@ class HandshakeFailedError(Exception):
     pass
 
 class Drone:
-  def __init__(self, drone_id, current_lat=55.7076368, current_lon=13.1880542):
+  def __init__(self, drone_id, current_lat, current_lon):
     self.drone_id = drone_id
     self.current_coords = (current_lat, current_lon)
     self.target_coords = None
@@ -83,8 +83,8 @@ class Drone:
 async def main():
   parser = argparse.ArgumentParser(description='Drone Instance')
   parser.add_argument('--id', help='Drone ID', type=str, required=True)
-  parser.add_argument('--current_lat', help='Current Drone Latitude', type=float, default=55.7076368)
-  parser.add_argument('--current_lon', help='Current Drone Longitude', type=float, default=13.1880542)
+  parser.add_argument('--current_lat', help='Current Drone Latitude', type=float, default=55.686603495138264)
+  parser.add_argument('--current_lon', help='Current Drone Longitude', type=float, default=13.202437928734543)
   args = parser.parse_args()
 
   drone = Drone(args.id, args.current_lat, args.current_lon)
