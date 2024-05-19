@@ -58,6 +58,9 @@ def handle_handshake(data):
 
       connected_drones[drone_id] = {'target': None, 'ref': drone_ref, 'sid': request.sid, 'delivery': None}
       drone_sid_id[request.sid] = drone_id
+
+      assign_deliveries()
+
       return {'success': True, 'drone_id': drone_id}
   else:
       return {'success': False}
@@ -121,7 +124,7 @@ def request_delivery():
             'pickup_coords': pickup_coords,
             'dropoff_coords': dropoff_coords,
             'status': 'pending',
-            'company': data.get('company_name'),
+            'company': data.get('company'),
             'created_at': firestore.SERVER_TIMESTAMP,
         })
         # Add delivery request to local dictionary
@@ -154,4 +157,14 @@ def assign_deliveries():
                     return
 
 if __name__ == '__main__':
+    # mark all old deliveries as completed
+
+    for doc in db.collection(DELIVERIES_COLLECTION).where('status', '!=', 'completed').stream():
+        doc.reference.update({'status': 'completed'})
+        print(f"Marked old delivery {doc.id} as completed")
+
+    for drone in db.collection(DRONES_COLLECTION).where('status', '!=', 'offline').stream():
+        drone.reference.update({'status': 'offline', 'latitude': None, 'longitude': None, 'delivery_id': None})
+        print(f"Marked old drone {drone.id} as offline")
+
     sio.run(app, host='0.0.0.0', port=8080)
