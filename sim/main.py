@@ -15,7 +15,7 @@ def pick_random_deliveries():
 
 # Function to pick a random wait time (30 to 60 seconds)
 def pick_random_wait_time():
-    return random.randint(30, 60)
+    return random.randint(15, 30)
 
 def random_coords():
     return (random.uniform(55.68100271828136, 55.743560192701395), random.uniform(13.144806425692959, 13.252574789032378))
